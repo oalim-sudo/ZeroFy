@@ -1,5 +1,5 @@
 if not game then
-    error("ForgeHub: Run this script in a Roblox executor, not a Lua editor.")
+    error("Gabisa Kocak: Run this script in a Roblox executor, not a Lua editor.")
 end
 
 local Players = game:GetService("Players")
@@ -367,7 +367,7 @@ titleLabel.Size = UDim2.new(1, 0, 1, 0)
 titleLabel.Font = Enum.Font.GothamBold
 titleLabel.TextSize = 13
 titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.Text = "Forge Hub - BFE"
+titleLabel.Text = "Rasvyl3 - BFE"
 titleLabel.ZIndex = 6
 titleLabel.Parent = topBar
 
@@ -394,7 +394,7 @@ discordButton.Size = UDim2.new(1, 0, 0, 30)
 discordButton.Font = Enum.Font.GothamSemibold
 discordButton.TextSize = 12
 discordButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-discordButton.Text = "Discord Community"
+discordButton.Text = "Jangan Ditekan"
 discordButton.AutoButtonColor = false
 discordButton.LayoutOrder = 1
 discordButton.ZIndex = 6
@@ -446,7 +446,7 @@ toggleLabel.Size = UDim2.fromScale(1, 1)
 toggleLabel.Font = Enum.Font.GothamBold
 toggleLabel.TextSize = 12
 toggleLabel.TextColor3 = Color3.fromRGB(200, 200, 215)
-toggleLabel.Text = "Auto TP: ON"
+toggleLabel.Text = "Auto TP: Aktif"
 toggleLabel.TextXAlignment = Enum.TextXAlignment.Center
 toggleLabel.ZIndex = 6
 toggleLabel.Parent = toggleContainer
@@ -493,7 +493,7 @@ helpLabel.Size = UDim2.fromScale(1, 1)
 helpLabel.Font = Enum.Font.GothamBold
 helpLabel.TextSize = 12
 helpLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
-helpLabel.Text = "Help Friend: OFF"
+helpLabel.Text = "Bantu Teman: Mati"
 helpLabel.TextXAlignment = Enum.TextXAlignment.Center
 helpLabel.ZIndex = 6
 helpLabel.Parent = helpContainer
@@ -531,7 +531,7 @@ local function UpdateVisual()
     if FarmEgg.enabled then
         toggleContainer.BackgroundColor3 = Color3.fromRGB(35, 120, 75)
         toggleStroke.Color = Color3.fromRGB(70, 190, 110)
-        toggleLabel.Text = "Auto TP: ON"
+        toggleLabel.Text = "Auto TP: Aktif"
         toggleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
         currentTween = TweenService:Create(
             toggleKnob,
@@ -542,7 +542,7 @@ local function UpdateVisual()
     else
         toggleContainer.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
         toggleStroke.Color = Color3.fromRGB(55, 55, 70)
-        toggleLabel.Text = "Auto TP: OFF"
+        toggleLabel.Text = "Auto TP: Mati"
         toggleLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
         currentTween = TweenService:Create(
             toggleKnob,
@@ -559,7 +559,7 @@ local function UpdateHelpVisual()
     if FarmEgg.helpFriend then
         helpContainer.BackgroundColor3 = Color3.fromRGB(35, 120, 75)
         helpStroke.Color = Color3.fromRGB(70, 190, 110)
-        helpLabel.Text = "Help Friend: ON"
+        helpLabel.Text = "Bantu Teman: Mati"
         helpLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
         currentHelpTween = TweenService:Create(
             helpKnob,
@@ -570,7 +570,7 @@ local function UpdateHelpVisual()
     else
         helpContainer.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
         helpStroke.Color = Color3.fromRGB(55, 55, 70)
-        helpLabel.Text = "Help Friend: OFF"
+        helpLabel.Text = "Bantu Teman: Mati"
         helpLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
         currentHelpTween = TweenService:Create(
             helpKnob,
@@ -598,7 +598,7 @@ toggleContainer.MouseButton1Click:Connect(function()
     PlayToggleSound()
     UpdateVisual()
     if FarmEgg.enabled then
-        Notify("Forge Hub - BFE", "Auto TP Active", 3)
+        Notify("Rasvyl3 - BFE", "Auto TP Active", 3)
     end
 end)
 
@@ -696,7 +696,7 @@ function Notify(title, content, duration)
 end
 
 discordButton.MouseButton1Click:Connect(function()
-    local link = "https://discord.gg/gfVWPEk4X"
+    local link = "Dibilang jangan ditekan"
     local success = pcall(function()
         if typeof(setclipboard) == "function" then
             setclipboard(link)
@@ -769,5 +769,5 @@ task.defer(function()
     UpdateVisual()
     UpdateHelpVisual()
     UpdateSelectVisual()
-    Notify("Forge Hub - BFE", "Auto TP Enabled", 3)
+    Notify("Rasvyl3 - BFE", "Auto TP Enabled", 3)
 end)
