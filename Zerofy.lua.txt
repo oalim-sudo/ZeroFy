@@ -308,7 +308,7 @@ if not parent then
 end
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "Forge Hub - BFE"
+screenGui.Name = "Rasvyl3 - BFE"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
@@ -394,7 +394,7 @@ discordButton.Size = UDim2.new(1, 0, 0, 30)
 discordButton.Font = Enum.Font.GothamSemibold
 discordButton.TextSize = 12
 discordButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-discordButton.Text = "Jangan Ditekan"
+discordButton.Text = "Skill Issue"
 discordButton.AutoButtonColor = false
 discordButton.LayoutOrder = 1
 discordButton.ZIndex = 6
@@ -559,7 +559,7 @@ local function UpdateHelpVisual()
     if FarmEgg.helpFriend then
         helpContainer.BackgroundColor3 = Color3.fromRGB(35, 120, 75)
         helpStroke.Color = Color3.fromRGB(70, 190, 110)
-        helpLabel.Text = "Bantu Teman: Mati"
+        helpLabel.Text = "Bantu Teman: Aktif"
         helpLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
         currentHelpTween = TweenService:Create(
             helpKnob,
@@ -606,7 +606,7 @@ helpContainer.MouseButton1Click:Connect(function()
     FarmEgg.helpFriend = not FarmEgg.helpFriend
     PlayToggleSound()
     UpdateHelpVisual()
-    Notify("Help Friend", FarmEgg.helpFriend and "Enabled" or "Disabled", 2)
+    Notify("Bantu Teman", FarmEgg.helpFriend and "Nyala Cuyy" or "Mati Nih Mau Idupin Kaga", 2)
 end)
 
 selectButton.MouseButton1Click:Connect(function()
@@ -696,7 +696,7 @@ function Notify(title, content, duration)
 end
 
 discordButton.MouseButton1Click:Connect(function()
-    local link = "Dibilang jangan ditekan"
+    local link = "Yahaha Jelek Gabisa Main Jadinya Make Script"
     local success = pcall(function()
         if typeof(setclipboard) == "function" then
             setclipboard(link)
