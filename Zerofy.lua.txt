@@ -1,0 +1,773 @@
+if not game then
+    error("ForgeHub: Run this script in a Roblox executor, not a Lua editor.")
+end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+
+local TWEEN_SPEED = 1000
+
+local AreaEggs, EggCmds, PlayerRequest
+pcall(function()
+    AreaEggs = require(ReplicatedStorage.Library.Types.AreaEggs)
+    EggCmds = require(ReplicatedStorage.Library.Client.EggCmds)
+    PlayerRequest = AreaEggs.DropReasons.PlayerRequest
+end)
+
+local FarmEgg = {
+    enabled = true,
+    running = false,
+    promptConn = nil,
+    patchConns = {},
+    savedDurations = {},
+    mode = "Teleport",
+    helpFriend = false,
+    originCF = nil,
+}
+
+local function PatchPrompt(p)
+    if not (p and typeof(p) == "Instance" and p:IsA("ProximityPrompt")) then
+        return
+    end
+    if FarmEgg.enabled then
+        if FarmEgg.savedDurations[p] == nil then
+            FarmEgg.savedDurations[p] = p.HoldDuration
+        end
+        p.HoldDuration = 0
+        p.RequiresLineOfSight = false
+    elseif FarmEgg.savedDurations[p] ~= nil then
+        pcall(function()
+            p.HoldDuration = FarmEgg.savedDurations[p]
+        end)
+        FarmEgg.savedDurations[p] = nil
+    end
+end
+
+local function SetPromptPatch(on)
+    if on then
+        for _, item in ipairs(Workspace:GetDescendants()) do
+            PatchPrompt(item)
+        end
+        table.insert(FarmEgg.patchConns, Workspace.DescendantAdded:Connect(PatchPrompt))
+        table.insert(FarmEgg.patchConns, ProximityPromptService.PromptShown:Connect(PatchPrompt))
+    else
+        for _, c in ipairs(FarmEgg.patchConns) do
+            pcall(function() c:Disconnect() end)
+        end
+        FarmEgg.patchConns = {}
+        for p, d in pairs(FarmEgg.savedDurations) do
+            if p and p.Parent then
+                pcall(function() p.HoldDuration = d end)
+            end
+        end
+        FarmEgg.savedDurations = {}
+    end
+end
+
+local function GetRoot()
+    local ch = LocalPlayer.Character
+    if not ch then return nil, nil end
+    return ch:FindFirstChildOfClass("Humanoid"), ch:FindFirstChild("HumanoidRootPart")
+end
+
+local function SaveOrigin()
+    local _, root = GetRoot()
+    if not root then
+        FarmEgg.originCF = nil
+        return false
+    end
+    FarmEgg.originCF = root.CFrame
+    return true
+end
+
+local function ForcePosition(cf)
+    local hum, root = GetRoot()
+    if not root then return end
+    if hum then
+        hum.Sit = false
+        hum.Health = math.max(hum.Health, 100)
+    end
+    root.CFrame = cf
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+end
+
+local function DoTeleportTo(targetCF)
+    local hum, root = GetRoot()
+    if not hum or not root then return end
+    ForcePosition(targetCF)
+    task.wait(0.05)
+    ForcePosition(targetCF)
+end
+
+local function DoTweenTo(targetCF)
+    local hum, root = GetRoot()
+    if not hum or not root then return end
+
+    local cam = Workspace.CurrentCamera
+    local oldCamCF = cam and cam.CFrame
+    local oldCamType = cam and cam.CameraType
+
+    if cam then
+        cam.CameraType = Enum.CameraType.Scriptable
+        cam.CFrame = oldCamCF
+    end
+
+    hum.BreakJointsOnDeath = false
+    hum.PlatformStand = true
+    hum.Sit = false
+    hum.Health = math.max(hum.Health, 100)
+
+    for _, d in ipairs(LocalPlayer.Character:GetDescendants()) do
+        if d:IsA("Motor6D") then d.Enabled = true end
+    end
+
+    local startCF = root.CFrame
+    local distance = (targetCF.Position - startCF.Position).Magnitude
+    local duration = math.clamp(distance / math.max(TWEEN_SPEED, 1), 0.05, 3)
+
+    local t0 = os.clock()
+    local hb
+    hb = RunService.Heartbeat:Connect(function()
+        local elapsed = os.clock() - t0
+        local alpha = math.clamp(elapsed / duration, 0, 1)
+
+        if not root or not root.Parent or not hum or hum.Health <= 0 then
+            if hb then hb:Disconnect() end
+            return
+        end
+
+        hum.Health = math.max(hum.Health, 100)
+        hum.PlatformStand = true
+        root.CFrame = startCF:Lerp(targetCF, alpha)
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        if cam then cam.CFrame = oldCamCF end
+
+        if alpha >= 1 then
+            if hb then hb:Disconnect() end
+        end
+    end)
+
+    task.wait(duration + 0.02)
+
+    if hb then pcall(function() hb:Disconnect() end) end
+
+    hum.PlatformStand = false
+    ForcePosition(targetCF)
+
+    if cam then
+        cam.CameraType = oldCamType or Enum.CameraType.Custom
+    end
+end
+
+local function GetTargetCF()
+    local success, result = pcall(function()
+        local obj = Workspace:FindFirstChild("__OBJECTS")
+        if obj then
+            local areas = obj:FindFirstChild("Areas")
+            if areas then
+                if FarmEgg.helpFriend then
+                    local guardAreas = areas:FindFirstChild("GuardAreas")
+                    if guardAreas then
+                        local forest = guardAreas:FindFirstChild("Forest")
+                        if forest then
+                            local reqSign = forest:FindFirstChild("RequiredSpeedSign")
+                            if reqSign then
+                                local main = reqSign:FindFirstChild("Main")
+                                if main then
+                                    if main:IsA("BasePart") then
+                                        return main.CFrame
+                                    elseif main:IsA("Model") then
+                                        local part = main.PrimaryPart or main:FindFirstChildWhichIsA("BasePart", true)
+                                        if part then return part.CFrame end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                else
+                    local startArea = areas:FindFirstChild("StartArea")
+                    if startArea then
+                        if startArea:IsA("BasePart") then
+                            return startArea.CFrame
+                        elseif startArea:IsA("Model") then
+                            local part = startArea.PrimaryPart or startArea:FindFirstChildWhichIsA("BasePart", true)
+                            if part then return part.CFrame end
+                        end
+                    end
+                end
+            end
+        end
+        return nil
+    end)
+    if success and result then
+        return result
+    end
+    return CFrame.new(Vector3.new(539.7, 71.1, -364.9))
+end
+
+local function TriggerFarmEgg()
+    if not FarmEgg.enabled or FarmEgg.running then return end
+    FarmEgg.running = true
+
+    if not SaveOrigin() then
+        FarmEgg.running = false
+        return
+    end
+
+    task.wait(0.05)
+
+    local targetCF = GetTargetCF()
+    if FarmEgg.mode == "Teleport" then
+        DoTeleportTo(targetCF)
+    else
+        DoTweenTo(targetCF)
+    end
+
+    -- Stay at the target/start part for 0.5s before backing to the main position
+    task.wait(0.5)
+
+    if FarmEgg.helpFriend then
+        pcall(function()
+            if EggCmds and PlayerRequest then
+                EggCmds.RequestDropHeldAreaEgg(PlayerRequest)
+            end
+        end)
+        task.wait(0.15)
+    end
+
+    if FarmEgg.originCF then
+        if FarmEgg.mode == "Teleport" then
+            DoTeleportTo(FarmEgg.originCF)
+        else
+            DoTweenTo(FarmEgg.originCF)
+        end
+    end
+
+    FarmEgg.running = false
+end
+
+local function SetEnabled(on)
+    FarmEgg.enabled = on == true
+    SetPromptPatch(FarmEgg.enabled)
+
+    if FarmEgg.enabled then
+        if not FarmEgg.promptConn then
+            FarmEgg.promptConn = ProximityPromptService.PromptTriggered:Connect(function(prompt, plr)
+                if plr ~= LocalPlayer then return end
+                local n = tostring(prompt)
+                if n == "CarryAreaEgg" or n:find("Egg") or n:find("Carry") then
+                    TriggerFarmEgg()
+                end
+            end)
+        end
+    elseif FarmEgg.promptConn then
+        pcall(function() FarmEgg.promptConn:Disconnect() end)
+        FarmEgg.promptConn = nil
+    end
+end
+
+local toggleSound = Instance.new("Sound")
+toggleSound.Name = "ForgeHub_ToggleSound"
+toggleSound.SoundId = "rbxassetid://140207837688369"
+toggleSound.Volume = 0.6
+toggleSound.Parent = SoundService
+
+local function PlayToggleSound()
+    pcall(function()
+        local clone = toggleSound:Clone()
+        clone.Parent = SoundService
+        clone:Play()
+        clone.Ended:Connect(function() clone:Destroy() end)
+        task.delay(3, function()
+            if clone and clone.Parent then clone:Destroy() end
+        end)
+    end)
+end
+
+local parent = nil
+pcall(function()
+    if typeof(gethui) == "function" then parent = gethui() end
+end)
+if not parent then
+    pcall(function() parent = game:GetService("CoreGui") end)
+end
+if not parent then
+    pcall(function()
+        parent = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
+    end)
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "Forge Hub - BFE"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+pcall(function() screenGui.DisplayOrder = 999999 end)
+screenGui.Parent = parent
+
+local mainScale = Instance.new("UIScale")
+mainScale.Scale = 1
+mainScale.Parent = screenGui
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.AnchorPoint = Vector2.new(0, 0)
+mainFrame.Position = UDim2.fromOffset(100, 100)
+mainFrame.Size = UDim2.fromOffset(200, 224)
+mainFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 14)
+mainCorner.Parent = mainFrame
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(60, 120, 255)
+mainStroke.Thickness = 1.5
+mainStroke.Transparency = 0.25
+mainStroke.Parent = mainFrame
+
+local topBar = Instance.new("Frame")
+topBar.Name = "TopBar"
+topBar.Size = UDim2.new(1, 0, 0, 38)
+topBar.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+topBar.BorderSizePixel = 0
+topBar.ZIndex = 5
+topBar.Parent = mainFrame
+
+local topBarCorner = Instance.new("UICorner")
+topBarCorner.CornerRadius = UDim.new(0, 14)
+topBarCorner.Parent = topBar
+
+local topBarCover = Instance.new("Frame")
+topBarCover.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+topBarCover.BorderSizePixel = 0
+topBarCover.Position = UDim2.new(0, 0, 1, -6)
+topBarCover.Size = UDim2.new(1, 0, 0, 6)
+topBarCover.ZIndex = 5
+topBarCover.Parent = topBar
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Name = "Title"
+titleLabel.BackgroundTransparency = 1
+titleLabel.Size = UDim2.new(1, 0, 1, 0)
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 13
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.Text = "Forge Hub - BFE"
+titleLabel.ZIndex = 6
+titleLabel.Parent = topBar
+
+local contentContainer = Instance.new("Frame")
+contentContainer.Name = "ContentContainer"
+contentContainer.BackgroundTransparency = 1
+contentContainer.Position = UDim2.fromOffset(14, 48)
+contentContainer.Size = UDim2.new(1, -28, 1, -58)
+contentContainer.ZIndex = 5
+contentContainer.Parent = mainFrame
+
+local uiLayout = Instance.new("UIListLayout")
+uiLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+uiLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+uiLayout.SortOrder = Enum.SortOrder.LayoutOrder
+uiLayout.Padding = UDim.new(0, 8)
+uiLayout.Parent = contentContainer
+
+local discordButton = Instance.new("TextButton")
+discordButton.Name = "DiscordButton"
+discordButton.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+discordButton.BorderSizePixel = 0
+discordButton.Size = UDim2.new(1, 0, 0, 30)
+discordButton.Font = Enum.Font.GothamSemibold
+discordButton.TextSize = 12
+discordButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+discordButton.Text = "Discord Community"
+discordButton.AutoButtonColor = false
+discordButton.LayoutOrder = 1
+discordButton.ZIndex = 6
+discordButton.Parent = contentContainer
+
+local discordCorner = Instance.new("UICorner")
+discordCorner.CornerRadius = UDim.new(0, 8)
+discordCorner.Parent = discordButton
+
+local toggleContainer = Instance.new("TextButton")
+toggleContainer.Name = "ToggleContainer"
+toggleContainer.Size = UDim2.new(1, 0, 0, 34)
+toggleContainer.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+toggleContainer.BorderSizePixel = 0
+toggleContainer.Text = ""
+toggleContainer.AutoButtonColor = false
+toggleContainer.LayoutOrder = 2
+toggleContainer.ZIndex = 6
+toggleContainer.Parent = contentContainer
+
+local toggleContainerCorner = Instance.new("UICorner")
+toggleContainerCorner.CornerRadius = UDim.new(0, 8)
+toggleContainerCorner.Parent = toggleContainer
+
+local toggleStroke = Instance.new("UIStroke")
+toggleStroke.Color = Color3.fromRGB(55, 55, 70)
+toggleStroke.Thickness = 1
+toggleStroke.Transparency = 0.3
+toggleStroke.Parent = toggleContainer
+
+local toggleKnob = Instance.new("Frame")
+toggleKnob.Name = "Knob"
+toggleKnob.AnchorPoint = Vector2.new(0, 0.5)
+toggleKnob.Position = UDim2.new(0, 6, 0.5, 0)
+toggleKnob.Size = UDim2.fromOffset(22, 22)
+toggleKnob.BackgroundColor3 = Color3.fromRGB(240, 240, 250)
+toggleKnob.BorderSizePixel = 0
+toggleKnob.ZIndex = 7
+toggleKnob.Parent = toggleContainer
+
+local knobCorner = Instance.new("UICorner")
+knobCorner.CornerRadius = UDim.new(1, 0)
+knobCorner.Parent = toggleKnob
+
+local toggleLabel = Instance.new("TextLabel")
+toggleLabel.Name = "Label"
+toggleLabel.BackgroundTransparency = 1
+toggleLabel.Size = UDim2.fromScale(1, 1)
+toggleLabel.Font = Enum.Font.GothamBold
+toggleLabel.TextSize = 12
+toggleLabel.TextColor3 = Color3.fromRGB(200, 200, 215)
+toggleLabel.Text = "Auto TP: ON"
+toggleLabel.TextXAlignment = Enum.TextXAlignment.Center
+toggleLabel.ZIndex = 6
+toggleLabel.Parent = toggleContainer
+
+local helpContainer = Instance.new("TextButton")
+helpContainer.Name = "HelpContainer"
+helpContainer.Size = UDim2.new(1, 0, 0, 34)
+helpContainer.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+helpContainer.BorderSizePixel = 0
+helpContainer.Text = ""
+helpContainer.AutoButtonColor = false
+helpContainer.LayoutOrder = 3
+helpContainer.ZIndex = 6
+helpContainer.Parent = contentContainer
+
+local helpContainerCorner = Instance.new("UICorner")
+helpContainerCorner.CornerRadius = UDim.new(0, 8)
+helpContainerCorner.Parent = helpContainer
+
+local helpStroke = Instance.new("UIStroke")
+helpStroke.Color = Color3.fromRGB(55, 55, 70)
+helpStroke.Thickness = 1
+helpStroke.Transparency = 0.3
+helpStroke.Parent = helpContainer
+
+local helpKnob = Instance.new("Frame")
+helpKnob.Name = "Knob"
+helpKnob.AnchorPoint = Vector2.new(0, 0.5)
+helpKnob.Position = UDim2.new(0, 6, 0.5, 0)
+helpKnob.Size = UDim2.fromOffset(22, 22)
+helpKnob.BackgroundColor3 = Color3.fromRGB(240, 240, 250)
+helpKnob.BorderSizePixel = 0
+helpKnob.ZIndex = 7
+helpKnob.Parent = helpContainer
+
+local helpKnobCorner = Instance.new("UICorner")
+helpKnobCorner.CornerRadius = UDim.new(1, 0)
+helpKnobCorner.Parent = helpKnob
+
+local helpLabel = Instance.new("TextLabel")
+helpLabel.Name = "Label"
+helpLabel.BackgroundTransparency = 1
+helpLabel.Size = UDim2.fromScale(1, 1)
+helpLabel.Font = Enum.Font.GothamBold
+helpLabel.TextSize = 12
+helpLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
+helpLabel.Text = "Help Friend: OFF"
+helpLabel.TextXAlignment = Enum.TextXAlignment.Center
+helpLabel.ZIndex = 6
+helpLabel.Parent = helpContainer
+
+local selectButton = Instance.new("TextButton")
+selectButton.Name = "SelectButton"
+selectButton.Size = UDim2.new(1, 0, 0, 32)
+selectButton.BackgroundColor3 = Color3.fromRGB(45, 35, 75)
+selectButton.BorderSizePixel = 0
+selectButton.Font = Enum.Font.GothamSemibold
+selectButton.TextSize = 12
+selectButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+selectButton.Text = "Mode: Teleport"
+selectButton.AutoButtonColor = false
+selectButton.LayoutOrder = 4
+selectButton.ZIndex = 6
+selectButton.Parent = contentContainer
+
+local selectCorner = Instance.new("UICorner")
+selectCorner.CornerRadius = UDim.new(0, 8)
+selectCorner.Parent = selectButton
+
+local selectStroke = Instance.new("UIStroke")
+selectStroke.Color = Color3.fromRGB(120, 90, 200)
+selectStroke.Thickness = 1
+selectStroke.Transparency = 0.3
+selectStroke.Parent = selectButton
+
+local currentTween = nil
+local currentHelpTween = nil
+
+local function UpdateVisual()
+    if currentTween then currentTween:Cancel() end
+
+    if FarmEgg.enabled then
+        toggleContainer.BackgroundColor3 = Color3.fromRGB(35, 120, 75)
+        toggleStroke.Color = Color3.fromRGB(70, 190, 110)
+        toggleLabel.Text = "Auto TP: ON"
+        toggleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        currentTween = TweenService:Create(
+            toggleKnob,
+            TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+            { Position = UDim2.new(1, -28, 0.5, 0) }
+        )
+        currentTween:Play()
+    else
+        toggleContainer.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+        toggleStroke.Color = Color3.fromRGB(55, 55, 70)
+        toggleLabel.Text = "Auto TP: OFF"
+        toggleLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
+        currentTween = TweenService:Create(
+            toggleKnob,
+            TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+            { Position = UDim2.new(0, 6, 0.5, 0) }
+        )
+        currentTween:Play()
+    end
+end
+
+local function UpdateHelpVisual()
+    if currentHelpTween then currentHelpTween:Cancel() end
+
+    if FarmEgg.helpFriend then
+        helpContainer.BackgroundColor3 = Color3.fromRGB(35, 120, 75)
+        helpStroke.Color = Color3.fromRGB(70, 190, 110)
+        helpLabel.Text = "Help Friend: ON"
+        helpLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        currentHelpTween = TweenService:Create(
+            helpKnob,
+            TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+            { Position = UDim2.new(1, -28, 0.5, 0) }
+        )
+        currentHelpTween:Play()
+    else
+        helpContainer.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+        helpStroke.Color = Color3.fromRGB(55, 55, 70)
+        helpLabel.Text = "Help Friend: OFF"
+        helpLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
+        currentHelpTween = TweenService:Create(
+            helpKnob,
+            TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+            { Position = UDim2.new(0, 6, 0.5, 0) }
+        )
+        currentHelpTween:Play()
+    end
+end
+
+local function UpdateSelectVisual()
+    if FarmEgg.mode == "Teleport" then
+        selectButton.Text = "Mode: Teleport"
+        selectButton.BackgroundColor3 = Color3.fromRGB(35, 80, 150)
+        selectStroke.Color = Color3.fromRGB(90, 150, 255)
+    else
+        selectButton.Text = "Mode: Tween"
+        selectButton.BackgroundColor3 = Color3.fromRGB(60, 40, 110)
+        selectStroke.Color = Color3.fromRGB(140, 100, 230)
+    end
+end
+
+toggleContainer.MouseButton1Click:Connect(function()
+    SetEnabled(not FarmEgg.enabled)
+    PlayToggleSound()
+    UpdateVisual()
+    if FarmEgg.enabled then
+        Notify("Forge Hub - BFE", "Auto TP Active", 3)
+    end
+end)
+
+helpContainer.MouseButton1Click:Connect(function()
+    FarmEgg.helpFriend = not FarmEgg.helpFriend
+    PlayToggleSound()
+    UpdateHelpVisual()
+    Notify("Help Friend", FarmEgg.helpFriend and "Enabled" or "Disabled", 2)
+end)
+
+selectButton.MouseButton1Click:Connect(function()
+    FarmEgg.mode = (FarmEgg.mode == "Tween") and "Teleport" or "Tween"
+    PlayToggleSound()
+    UpdateSelectVisual()
+    Notify("Mode", FarmEgg.mode, 2)
+end)
+
+local notifyParent = screenGui
+
+function Notify(title, content, duration)
+    duration = duration or 3
+
+    local notifyFrame = Instance.new("Frame")
+    notifyFrame.Name = "Notify"
+    notifyFrame.AnchorPoint = Vector2.new(1, 1)
+    notifyFrame.Position = UDim2.new(1, -15, 1, -15)
+    notifyFrame.Size = UDim2.fromOffset(210, 64)
+    notifyFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 22)
+    notifyFrame.BorderSizePixel = 0
+    notifyFrame.BackgroundTransparency = 1
+    notifyFrame.Parent = notifyParent
+
+    local nc = Instance.new("UICorner")
+    nc.CornerRadius = UDim.new(0, 8)
+    nc.Parent = notifyFrame
+
+    local ns = Instance.new("UIStroke")
+    ns.Color = Color3.fromRGB(60, 120, 255)
+    ns.Thickness = 1
+    ns.Transparency = 0.3
+    ns.Parent = notifyFrame
+
+    local ac = Instance.new("Frame")
+    ac.Size = UDim2.new(0, 3, 1, -12)
+    ac.Position = UDim2.fromOffset(6, 6)
+    ac.BackgroundColor3 = Color3.fromRGB(60, 120, 255)
+    ac.BorderSizePixel = 0
+    ac.Parent = notifyFrame
+
+    local acc = Instance.new("UICorner")
+    acc.CornerRadius = UDim.new(1, 0)
+    acc.Parent = ac
+
+    local tl = Instance.new("TextLabel")
+    tl.BackgroundTransparency = 1
+    tl.Position = UDim2.fromOffset(16, 8)
+    tl.Size = UDim2.new(1, -22, 0, 18)
+    tl.Font = Enum.Font.GothamBold
+    tl.TextSize = 12
+    tl.TextColor3 = Color3.fromRGB(245, 245, 250)
+    tl.Text = title
+    tl.TextXAlignment = Enum.TextXAlignment.Left
+    tl.TextTransparency = 1
+    tl.Parent = notifyFrame
+
+    local cl = Instance.new("TextLabel")
+    cl.BackgroundTransparency = 1
+    cl.Position = UDim2.fromOffset(16, 28)
+    cl.Size = UDim2.new(1, -22, 0, 28)
+    cl.Font = Enum.Font.Gotham
+    cl.TextSize = 10
+    cl.TextColor3 = Color3.fromRGB(170, 175, 195)
+    cl.Text = content
+    cl.TextXAlignment = Enum.TextXAlignment.Left
+    cl.TextYAlignment = Enum.TextYAlignment.Top
+    cl.TextWrapped = true
+    cl.TextTransparency = 1
+    cl.Parent = notifyFrame
+
+    TweenService:Create(notifyFrame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Position = UDim2.new(1, -15, 1, -15), BackgroundTransparency = 0
+    }):Play()
+    TweenService:Create(tl, TweenInfo.new(0.3), { TextTransparency = 0 }):Play()
+    TweenService:Create(cl, TweenInfo.new(0.3), { TextTransparency = 0 }):Play()
+
+    task.delay(duration, function()
+        local so = TweenService:Create(notifyFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Position = UDim2.new(1, 60, 1, -15), BackgroundTransparency = 1
+        })
+        so:Play()
+        TweenService:Create(tl, TweenInfo.new(0.25), { TextTransparency = 1 }):Play()
+        TweenService:Create(cl, TweenInfo.new(0.25), { TextTransparency = 1 }):Play()
+        so.Completed:Connect(function() notifyFrame:Destroy() end)
+    end)
+end
+
+discordButton.MouseButton1Click:Connect(function()
+    local link = "https://discord.gg/gfVWPEk4X"
+    local success = pcall(function()
+        if typeof(setclipboard) == "function" then
+            setclipboard(link)
+        elseif typeof(toclipboard) == "function" then
+            toclipboard(link)
+        else
+            error("no clipboard")
+        end
+    end)
+    if success then
+        Notify("Discord", "Copied link to clipboard", 3)
+    else
+        Notify("Discord", "Failed to copy link", 3)
+    end
+end)
+
+do
+    local dragging = false
+    local dragInput = nil
+    local dragStart = nil
+    local startPos = nil
+
+    local function updateDrag(input)
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+
+    topBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragInput = input
+            dragStart = input.Position
+            startPos = mainFrame.Position
+            local connection
+            connection = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    if connection then connection:Disconnect() end
+                end
+            end)
+        end
+    end)
+
+    topBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input == dragInput then
+            updateDrag(input)
+        end
+    end)
+end
+
+UpdateVisual()
+UpdateHelpVisual()
+UpdateSelectVisual()
+
+SetEnabled(true)
+task.defer(function()
+    UpdateVisual()
+    UpdateHelpVisual()
+    UpdateSelectVisual()
+    Notify("Forge Hub - BFE", "Auto TP Enabled", 3)
+end)
