@@ -510,7 +510,7 @@ local function func11(cFrame)
 	end
 end
 
-local Window = module:CreateWindow({Title = " Symbiote ", MinWidth = 240, MinHeight = 130})
+local Window = module:CreateWindow({Title = " Symbiote ", MinWidth = 201, MinHeight = 122})
 local autoFarmTab = Window:CreateTab("Auto Farm")
 local playerTab = Window:CreateTab("Player")
 local flag = false
